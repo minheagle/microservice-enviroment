@@ -1,0 +1,132 @@
+services:
+  consul:
+    image: consul:1.15.4
+    container_name: microservices-consul
+    restart: unless-stopped
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    environment:
+      CONSUL_LOCAL_CONFIG: |
+        {
+          "telemetry": {
+            "prometheus_retention_time": "24h"
+          }
+        }
+    command: agent -server -bootstrap-expect=1 -ui -bind=0.0.0.0 -client=0.0.0.0
+    networks:
+      - microservices-network
+
+  rabbitmq:
+    image: rabbitmq:${RABBITMQ_VERSION}
+    container_name: microservices-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    volumes:
+      - ./rabbitmq/data/:/var/lib/rabbitmq/
+      - ./rabbitmq/log/:/var/log/rabbitmq
+    networks:
+      - microservices-network
+
+  grafana:
+    image: grafana/grafana
+    container_name: microservices-grafana
+    restart: unless-stopped
+    hostname: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: ${GRAFANA_ALLOW_SIGN_UP}
+      GF_SERVER_DOMAIN: ${GRAFANA_SERVER_DOMAIN}
+      GF_LOG_MODE: ${GRAFANA_LOG_MODE}
+      GF_LOG_FILTERS: ${GRAFANA_LOG_FILTER}
+    volumes:
+      - ./grafana:/var/lib/grafana
+    # extra_hosts:
+    #   - "host.docker.internal:172.17.0.1"
+    ports:
+      - "3000:3000"
+    networks:
+      - microservices-network
+
+  loki:
+    image: grafana/loki:latest
+    container_name: microservices-loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml
+    command: -config.expand-env=true -config.file=/etc/loki/loki-config.yaml
+    networks:
+      - microservices-network
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: microservices-promtail
+    restart: unless-stopped
+    volumes:
+      - ./promtail/log:/var/log
+      - ./promtail/promtail-config.yaml:/etc/promtail/config.yaml
+    command: -config.file=/etc/promtail/config.yaml
+    depends_on:
+      - loki
+    networks:
+      - microservices-network
+
+  # elasticsearch:
+  #   image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+  #   container_name: microservices-elasticsearch
+  #   ports:
+  #     - ${ES_PORT}:9200
+  #   environment:
+  #     - node.name=es
+  #     - discovery.type=single-node
+  #     - ES_JAVA_OPTS=-Xms512m -Xms512m
+  #     - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+  #     - xpack.security.enabled=false
+  #     - xpack.license.self_generated.type=${LICENSE}
+  #   healthcheck:
+  #     test:
+  #       [
+  #         "CMD-SHELL",
+  #         "curl -s http://localhost:9222 | grep -q 'missing authentication credentials'",
+  #       ]
+  #     interval: 10s
+  #     timeout: 10s
+  #     retries: 10
+  #   volumes:
+  #     - esdata:/usr/share/elasticsearch/data
+  #   networks:
+  #     - microservices-network
+
+  # kibana:
+  #   image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
+  #   container_name: microservices-kibana
+  #   ports:
+  #     - ${KIBANA_PORT}:5601
+  #   environment:
+  #     - KIBANA_SYSTEM_PASSWORD=${KIBANA_PASSWORD}
+  #   volumes:
+  #     - kibanadata:/usr/share/kibana/data
+  #   depends_on:
+  #     - elasticsearch
+  #   networks:
+  #     - microservices-network
+
+# volumes:
+#   certs:
+#     driver: local
+#   esdata:
+#     driver: local
+#   kibanadata:
+#     driver: local
+
+networks:
+  microservices-network:
+    driver: bridge
